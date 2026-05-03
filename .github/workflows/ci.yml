@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  prototype-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run validator + integration tests
+        working-directory: prototype
+        run: python -m unittest discover tests -v
+
+      - name: Smoke-run pipeline (template-only mode, no API key)
+        working-directory: prototype
+        run: |
+          python main.py --inputs ../inputs --out output
+          test -s output/decisions.json
+          test -s output/audit_log.jsonl
+          test -s output/report.md
