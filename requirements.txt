@@ -1,0 +1,15 @@
+# Streamlit Cloud reads this file at the repo root.
+# Merged superset of prototype/requirements.txt + prototype/requirements-llm.txt
+# plus the frontend-only deps (pandas, python-dotenv).
+
+streamlit>=1.36.0
+pandas>=2.0.0
+python-dotenv>=1.0.0
+
+# LLM providers — anthropic preferred, openai fallback
+anthropic>=0.40.0
+openai>=1.40.0
+
+# LangGraph + Chroma RAG variant (the demonstration path)
+langgraph>=0.2.0
+chromadb>=0.5.0
