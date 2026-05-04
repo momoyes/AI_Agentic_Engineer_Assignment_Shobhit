@@ -99,12 +99,12 @@ For each of the 10 JEs, emit:
 }
 ```
 
-Expected decisions per the seeded data:
+Expected decisions per the seeded data (pre-build prediction):
 
 | JE | Expected decision | Reason |
 |---|---|---|
 | JE-001 | accept | Bonus accrual, balanced |
-| JE-002 | reject | debit 28,500 ≠ credit 25,000 |
+| JE-002 | reject † | debit 28,500 ≠ credit 25,000 |
 | JE-003 | accept | FX reval, balanced |
 | JE-004 | accept | Bad debt provision, balanced |
 | JE-005 | quarantine | Account 6315 not in COA — propose mapping with confidence |
@@ -113,6 +113,15 @@ Expected decisions per the seeded data:
 | JE-008 | quarantine | Circular IC — same account 2170 debited and credited; economically null |
 | JE-009 | accept | Legal accrual, balanced |
 | JE-010 | accept | LT debt reclass, balanced |
+
+> † **Updated post-policy.** This pre-build prediction assumed a strict
+> "imbalance → reject" policy. Amit Patel's reply on **2026-04-30**
+> introduced a tiered materiality policy (≤$500 auto-correct; $500–$10k
+> WARN with reconciliation note, do not halt; >$10k HALT). Under that
+> policy, JE-002's $3,500 imbalance is **tier-b → accept (warn)** with
+> an `IMBALANCE_WARN` finding and a proposed credit-line adjustment for
+> reviewer sign-off. The shipped Adjuster implements the post-policy
+> behavior; `ASSUMPTIONS.md` A1 + A12 trace the provenance.
 
 ---
 

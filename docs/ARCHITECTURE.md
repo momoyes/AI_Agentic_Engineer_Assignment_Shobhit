@@ -325,22 +325,41 @@ is the whole point of the brief's "do not sanitize the inputs first."
 - SOCIE: opening equity = prior period closing equity (cross-period continuity)
 
 If a check fails, the orchestrator does **not** ask an LLM to "figure it
-out." It does this:
+out." It runs the bounded recovery loop below — code decides
+recoverability, code enforces the retry cap, code passes the **specific**
+failed check (not a generic "fix it" prompt) into a repair agent with a
+**whitelisted** action surface.
 
-```
-on check_failure(failed_check, data):
-    if failed_check.is_recoverable_by_agent:
-        retry_count = retry_count + 1
-        if retry_count > 2:
-            queue_for_human(failed_check, data, decision_log)
-            return
-        agent.invoke(
-            instruction=failed_check.specific_message,   # exactly what's wrong
-            data=data,
-            allowed_actions=failed_check.repair_actions, # bounded
-        )
-    else:
-        queue_for_human(failed_check, data, decision_log)
+```mermaid
+flowchart TD
+    Input["JE batch / TB / FX matrix"]
+    PreFlight{"Pre-flight checks<br/>(code only — no LLM)"}
+    Pipeline["Run pipeline:<br/>Map → Adjust → Translate → Assemble"]
+    PostCheck{"Post-assembly checks<br/>BS A=L+E · NI→RE · CF · SOCIE"}
+    Publish[["Publish statements<br/>+ audit log"]]
+    Recoverable{"Recoverable<br/>by agent?"}
+    RetryCap{"Retries<br/>used &lt; 2?"}
+    Repair["Repair agent<br/>(specific check + bounded actions)"]
+    HumanQ[["Human queue<br/>(structured diff + decision log)"]]
+
+    Input --> PreFlight
+    PreFlight -- pass --> Pipeline
+    PreFlight -- "fail<br/>(unrecoverable)" --> HumanQ
+    Pipeline --> PostCheck
+    PostCheck -- pass --> Publish
+    PostCheck -- fail --> Recoverable
+    Recoverable -- "no<br/>(e.g., tier-c HALT)" --> HumanQ
+    Recoverable -- yes --> RetryCap
+    RetryCap -- no --> HumanQ
+    RetryCap -- yes --> Repair
+    Repair --> PostCheck
+
+    classDef code fill:#eef2ff,stroke:#3b5bdb,color:#1c2541
+    classDef llm fill:#fff3cd,stroke:#b54708,color:#7c2d12
+    classDef sink fill:#dcfce7,stroke:#15803d,color:#14532d
+    class PreFlight,PostCheck,Pipeline,Recoverable,RetryCap code
+    class Repair llm
+    class Publish,HumanQ sink
 ```
 
 Three properties matter:
@@ -358,13 +377,33 @@ Three properties matter:
 ## 8. Auditor's-eye traceability
 
 Demo: an auditor opens the BS and clicks on **Cash and Cash Equivalents**.
+Three clicks reach the original CSV row + every agent decision that
+touched the number.
 
-1. **Click 1 — roll-up children.** UI shows `1110 USD`, `1110 EUR (translated)`, `1110 GBP (translated)`, plus contributions from JE-003 (FX reval) and JE-005 (if accepted post-mapping).
-2. **Click 2 — leaf account.** UI shows `1110 EUR` line: original raw EUR balance, period-end FX rate used, USD result, with citations: `trial_balance.csv:3` and `fx_rates.csv:EUR.period_end=1.095`.
-3. **Click 3 — agent touches.** UI lists every agent that touched this number. For pure FX translation, just the `Translator` (code). For an adjustment that flowed in, the `Adjuster` decision record with prompt hash, model id, confidence, and any human override.
+```mermaid
+flowchart LR
+    Cell[["BS · Cash and Cash Equivalents<br/>= $5,487,700.00"]]
+    RollUp["Click 1 — roll-up children<br/>1110 USD · 1110 EUR (xlated) · 1110 GBP (xlated)<br/>+ JE-003 FX reval"]
+    Leaf["Click 2 — leaf account<br/>1110 EUR: raw EUR × period-end rate"]
+    Source["Click 3a — source rows<br/>trial_balance.csv:3<br/>fx_rates.csv: EUR.period_end = 1.095"]
+    Touches["Click 3b — agent touches<br/>Translator · code · deterministic<br/>Adjuster · claude-opus-4-7 · accept · conf 1.0<br/>Override: none"]
 
-Every step of this trail is a deterministic graph query against the event
-log. No LLM is invoked at audit time.
+    Cell --> RollUp --> Leaf
+    Leaf --> Source
+    Leaf --> Touches
+
+    classDef out  fill:#dcfce7,stroke:#15803d,color:#14532d
+    classDef step fill:#eef2ff,stroke:#3b5bdb,color:#1c2541
+    classDef src  fill:#fef3c7,stroke:#b54708,color:#7c2d12
+    class Cell out
+    class RollUp,Leaf step
+    class Source,Touches src
+```
+
+Every arrow above is a deterministic graph query against the append-only
+event log from §4. **No LLM is invoked at audit time** — auditing is
+read-only against frozen events, so reproducibility is a property of the
+data structure, not a property of the model.
 
 ### What this gives the audit team
 
