@@ -1,0 +1,11 @@
+# Heavy LLM-mode dependencies — only needed when running the LangGraph
+# variant of the Adjuster (--llm-mode graph in main.py, or "LangGraph + RAG"
+# in the Streamlit sub-toggle).
+#
+# Install:  pip install -r requirements-llm.txt
+#
+# The deterministic mode (`python3 main.py --inputs ../inputs --out output`)
+# stays zero-dep — that path runs on stdlib only. The base requirements.txt
+# additionally pulls in anthropic + openai for the prose-only LLM path.
+langgraph>=0.2.0
+chromadb>=0.5.0

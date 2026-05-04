@@ -158,12 +158,17 @@ def _load_inputs() -> tuple[dict, str, str, list]:
 
 @st.cache_data(show_spinner=False)
 def _run_deterministic(_coa: dict, _entries: list) -> list[DecisionRecord]:
-    return decide_batch(_entries, _coa, use_llm=False)
+    return decide_batch(_entries, _coa, llm_mode="off")
 
 
 @st.cache_data(show_spinner=False)
-def _run_llm(_coa: dict, _entries: list, _provider_hint: str) -> list[DecisionRecord]:
-    return decide_batch(_entries, _coa, use_llm=True)
+def _run_llm_prose(_coa: dict, _entries: list, _provider_hint: str) -> list[DecisionRecord]:
+    return decide_batch(_entries, _coa, llm_mode="prose")
+
+
+@st.cache_data(show_spinner="Running LangGraph + Chroma RAG (live LLM calls)…")
+def _run_llm_graph(_coa: dict, _entries: list, _provider_hint: str) -> list[DecisionRecord]:
+    return decide_batch(_entries, _coa, llm_mode="graph")
 
 
 def _provider_status() -> tuple[str, str, str]:
@@ -692,9 +697,29 @@ def _render_je_card(
     st.markdown(head + body + "</div>", unsafe_allow_html=True)
 
 
+def _decision_chip(label: str, decision: str) -> str:
+    return (
+        f'<div style="display:flex;align-items:center;gap:6px;font-size:11px;'
+        f'color:var(--muted);margin-bottom:6px">'
+        f'<span style="text-transform:uppercase;letter-spacing:.06em;font-weight:600">{label}</span>'
+        f'{_decision_badge(decision)}'
+        f'</div>'
+    )
+
+
 def _render_je_compare_card(
-    det: DecisionRecord, llm: DecisionRecord, *, je_lookup: dict
+    det: DecisionRecord,
+    prose: DecisionRecord,
+    graph: DecisionRecord,
+    *,
+    je_lookup: dict,
 ) -> None:
+    """Three-column compare per JE.
+
+    Column 1 — pure deterministic.
+    Column 2 — deterministic decisions, LLM-rewritten prose only.
+    Column 3 — LangGraph + Chroma RAG (LLM in the structural seat).
+    """
     je = je_lookup.get(det.je_id)
     head = f"""
     <div class="je-card">
@@ -709,26 +734,38 @@ def _render_je_compare_card(
         </div>
       </div>
     """
-    prose = f"""
-    <div class="prose-grid">
+    prose_html = f"""
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px;">
       <div class="prose-card">
-        <div class="label">Deterministic prose</div>
+        {_decision_chip("Deterministic", det.decision)}
         <div class="body">{det.explanation or "—"}</div>
       </div>
       <div class="prose-card">
-        <div class="label">LLM prose</div>
-        <div class="body">{llm.explanation or "—"}</div>
+        {_decision_chip("LLM · prose only", prose.decision)}
+        <div class="body">{prose.explanation or "—"}</div>
+      </div>
+      <div class="prose-card" style="background:#f4f3ff;border-color:#d9d6fe;">
+        {_decision_chip("LangGraph + RAG", graph.decision)}
+        <div class="body">{graph.explanation or "—"}</div>
       </div>
     </div>
     """
     body = (
         _je_lines_table(je)
         + _findings_html(det.findings)
-        + prose
+        + prose_html
         + _proposed_fix_html(det.proposed_fix)
         + _suggestions_html(det.suggestions)
     )
     st.markdown(head + body + "</div>", unsafe_allow_html=True)
+
+    # Trace from the graph mode (if present) — collapsed by default; the
+    # expander unlocks the per-node telemetry that justifies LangGraph at all.
+    trace = getattr(graph, "trace", None)
+    if trace:
+        with st.expander(f"LangGraph trace · {det.je_id}", expanded=False):
+            df = pd.DataFrame(trace)
+            st.dataframe(df, use_container_width=True, hide_index=True)
 
 
 # ---------------------------------------------------------------------------
@@ -818,9 +855,33 @@ with st.sidebar:
                     "is in `validators.py`. Prose comes from a fixed template."
                 ),
                 "LLM": "Same decisions and findings; explanation rewritten by Claude / OpenAI.",
-                "Compare": "Runs both. Findings, decisions, fixes are identical — only prose differs.",
+                "Compare": "Runs all three (deterministic, LLM-prose, LangGraph + RAG) side-by-side per JE.",
             }[mode]
         )
+
+        # LLM sub-toggle: prose-only (cheap) vs full LangGraph + Chroma RAG.
+        if mode in ("LLM", "Compare"):
+            st.markdown(
+                '<div class="sidebar-section-title" style="margin-top:1rem">LLM variant</div>',
+                unsafe_allow_html=True,
+            )
+            llm_variant = st.radio(
+                "LLM variant",
+                ["Prose only", "LangGraph + RAG"],
+                index=0,
+                label_visibility="collapsed",
+                horizontal=True,
+                help=(
+                    "Prose only — code decides, LLM writes the explanation.\n\n"
+                    "LangGraph + RAG — LLM nodes do structural / existence / "
+                    "semantic checks against policy and COA snippets retrieved "
+                    "from a Chroma vector DB. The demonstration path: shows that "
+                    "putting an LLM in the arithmetic seat is technically "
+                    "possible but obviously worse."
+                ),
+            )
+        else:
+            llm_variant = "Prose only"
 
         st.markdown(
             '<div class="sidebar-section-title" style="margin-top:1.5rem">Filter decisions</div>',
@@ -834,6 +895,7 @@ with st.sidebar:
         # is selected. They're never read in that branch, but keeping the
         # symbols defined prevents subtle bugs if a section is restructured.
         mode = "Deterministic"
+        llm_variant = "Prose only"
         show_accept = show_quarantine = show_reject = True
 
     st.markdown(
@@ -965,17 +1027,45 @@ tab_overview, tab_decisions, tab_audit, tab_policy = st.tabs(
     ["Overview", "Decisions", "Audit log", "Policy"]
 )
 
-# Pre-compute records (cached)
+# Pre-compute records (cached). LangGraph is invoked lazily — only if the
+# current view actually needs it, since each invoke spends real LLM tokens.
 det_records = _run_deterministic(coa, entries)
-llm_records = _run_llm(coa, entries, provider) if mode != "Deterministic" else det_records
+
+needs_prose = mode == "LLM" and llm_variant == "Prose only"
+needs_graph = (mode == "LLM" and llm_variant == "LangGraph + RAG") or mode == "Compare"
+
+if mode == "LLM" or mode == "Compare":
+    if provider == "template":
+        st.warning(
+            "No `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` is set. The LLM "
+            "variant cannot run; showing deterministic output only."
+        )
+        prose_records = det_records
+        graph_records = det_records
+    else:
+        prose_records = _run_llm_prose(coa, entries, provider) if needs_prose or mode == "Compare" else det_records
+        if needs_graph:
+            try:
+                graph_records = _run_llm_graph(coa, entries, provider)
+            except Exception as exc:
+                st.error(f"LangGraph mode failed: {exc}")
+                graph_records = det_records
+        else:
+            graph_records = det_records
+else:
+    prose_records = det_records
+    graph_records = det_records
 
 if mode == "Deterministic":
     primary = det_records
     prose_label = "Explanation · template"
-elif mode == "LLM":
-    primary = llm_records
+elif mode == "LLM" and llm_variant == "Prose only":
+    primary = prose_records
     prose_label = f"Explanation · {provider_label}"
-else:
+elif mode == "LLM" and llm_variant == "LangGraph + RAG":
+    primary = graph_records
+    prose_label = f"Explanation · LangGraph + RAG · {provider_label}"
+else:  # Compare
     primary = det_records
     prose_label = "see comparison view"
 
@@ -1052,14 +1142,22 @@ with tab_decisions:
         )
 
         if mode == "Compare":
-            llm_by_id = {r.je_id: r for r in llm_records}
+            prose_by_id = {r.je_id: r for r in prose_records}
+            graph_by_id = {r.je_id: r for r in graph_records}
             for det in filtered:
                 _render_je_compare_card(
-                    det, llm_by_id.get(det.je_id, det), je_lookup=je_lookup
+                    det,
+                    prose_by_id.get(det.je_id, det),
+                    graph_by_id.get(det.je_id, det),
+                    je_lookup=je_lookup,
                 )
         else:
             for r in filtered:
                 _render_je_card(r, je_lookup=je_lookup, prose_label=prose_label)
+                trace = getattr(r, "trace", None)
+                if trace:
+                    with st.expander(f"LangGraph trace · {r.je_id}", expanded=False):
+                        st.dataframe(pd.DataFrame(trace), use_container_width=True, hide_index=True)
 
 
 # ----------------------------- Audit log tab -------------------------------

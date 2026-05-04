@@ -11,6 +11,22 @@ The Adjuster's pipeline tiers, the `auto_correction` audit event, the
 `IMBALANCE_WARN` finding code, and the FX-rate fallback all transcribe that
 reply directly. ASSUMPTIONS.md A0 traces the provenance.
 
+## A demonstration: putting the LLM in the arithmetic seat
+
+The repo ships a second LLM variant — `prototype/adjuster/graph.py` — that
+uses LangGraph + Chroma RAG to let the LLM run the structural, existence,
+and semantic checks against retrieved policy and COA snippets. It *works*.
+On the seeded data it produces decisions broadly aligned with the
+deterministic version. But it's strictly worse along every axis I care
+about: ~5,000× slower per JE (an LLM round-trip vs. a Python `if`), real
+dollars per close (every batch is N+1 model calls), non-deterministic
+output (you cannot replay it bit-for-bit), and the auditor cannot point
+to a line of code that produced "debit ≠ credit by $3,500" — the model
+did. The Streamlit "Compare" view renders all three modes side-by-side
+per JE so a reviewer sees the gap rather than reading me claim it. That's
+the case for the *deterministic-with-LLM-prose-only* default the
+Adjuster ships with.
+
 ## What I'd build differently with 3 months instead of 8 hours
 
 A real eval harness comes first. The prototype today pins decisions for

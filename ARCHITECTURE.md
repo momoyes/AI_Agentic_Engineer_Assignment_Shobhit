@@ -448,6 +448,48 @@ Output on the seeded inputs (8 accept / 2 quarantine / 0 reject):
 
 ---
 
+## 10b. The LangGraph + RAG variant — a deliberate counter-example
+
+`prototype/adjuster/graph.py` ships a second implementation of the Adjuster
+that does the opposite of the rule in §3 — it lets the LLM run the
+structural, existence, and semantic checks, with policy and COA snippets
+retrieved from a Chroma vector store. Six LangGraph nodes, three of them
+in parallel via a reducer-backed `findings` channel.
+
+```
+START ─┬──► structural ──┐
+       ├──► existence  ──┼──► aggregate ──► decide ──► explain ──► END
+       └──► semantic   ──┘
+```
+
+This variant is **not** the recommended path. It's included because the
+brief asks how I would build the system, and the strongest argument for
+"code does the math; LLM does the prose" is to ship the alternative
+side-by-side and let a reviewer compare. The Streamlit "Compare" view
+renders all three modes per JE — deterministic, LLM-prose-only, and
+LangGraph + RAG — so the gap is observable, not asserted. Run with
+`python3 main.py --llm-mode graph` after `pip install -r
+requirements-llm.txt`.
+
+What you see in the trace explorer when you click any JE in the LangGraph
+column:
+
+| Node | Touches | Cost |
+|---|---|---|
+| `structural` | RAG over `adjuster_policy` (3 snippets); LLM judges balance/sign/date | ~600 input tokens, ~150 output |
+| `existence` | RAG over `coa_accounts` (5/line); LLM picks per line | scales with line count |
+| `semantic` | No RAG; pure LLM memo-coherence check | ~400 in / ~100 out |
+| `aggregate` | Pure code dedup | 0 |
+| `decide` | RAG over policy; LLM applies tier rules | ~500 in / ~80 out |
+| `explain` | Reuses `llm.explain` — same prose path as the prose-only mode | ~300 in / ~120 out |
+
+The takeaway lands in the comparison: every LLM call is a place where the
+deterministic path returns the right answer in microseconds, for free,
+deterministically, with the source of the answer visible in
+`validators.py`. The LangGraph variant is technically interesting and
+operationally inferior. That's the lesson the brief is asking the
+candidate to learn.
+
 ## 11. Summary in five bullets
 
 - **Code does the math; LLMs do the labels and the prose.** The LLM never

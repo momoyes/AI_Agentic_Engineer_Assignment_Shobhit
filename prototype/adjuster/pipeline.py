@@ -47,7 +47,34 @@ HARD_ERROR_CODES = {
 }
 
 
-def decide_one(je: JournalEntry, coa: dict[str, Account], use_llm: bool) -> DecisionRecord:
+LLMMode = str  # 'off' | 'prose' | 'graph'
+
+
+def decide_one(
+    je: JournalEntry,
+    coa: dict[str, Account],
+    use_llm: bool = False,
+    *,
+    llm_mode: LLMMode | None = None,
+) -> DecisionRecord:
+    """Validate one JE.
+
+    `llm_mode` (preferred) selects the variant:
+      - 'off'   : pure deterministic; prose from a template.
+      - 'prose' : deterministic decisions + LLM-rewritten explanation.
+      - 'graph' : LangGraph + RAG; LLM does structural / existence / semantic
+                  checks, retrieving policy/COA snippets from Chroma. The
+                  *demonstration* path — see ARCHITECTURE.md.
+
+    `use_llm` is kept for back-compat: True ⇒ 'prose', False ⇒ 'off'.
+    """
+    if llm_mode is None:
+        llm_mode = "prose" if use_llm else "off"
+
+    if llm_mode == "graph":
+        from .graph import run_graph
+        return run_graph(je, coa)
+
     findings = run_all_checks(je, coa)
 
     decision: str
@@ -95,7 +122,7 @@ def decide_one(je: JournalEntry, coa: dict[str, Account], use_llm: bool) -> Deci
         suggestions=suggestions,
         proposed_fix=proposed_fix,
     )
-    record.explanation = explain(record, use_llm=use_llm)
+    record.explanation = explain(record, use_llm=(llm_mode == "prose"))
     return record
 
 
@@ -173,5 +200,9 @@ def decide_batch(
     coa: dict[str, Account],
     *,
     use_llm: bool = False,
+    llm_mode: LLMMode | None = None,
 ) -> list[DecisionRecord]:
-    return [decide_one(je, coa, use_llm) for je in entries]
+    return [
+        decide_one(je, coa, use_llm=use_llm, llm_mode=llm_mode)
+        for je in entries
+    ]

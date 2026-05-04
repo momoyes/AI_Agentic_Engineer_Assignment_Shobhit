@@ -25,6 +25,23 @@ The LLM never produces a number, never decides accept/reject, and never
 mints a mapping. It chooses among code-generated candidates and writes
 human-readable prose.
 
+### A second LLM variant — for comparison only
+
+`adjuster/graph.py` ships a **LangGraph + Chroma RAG** variant of the
+Adjuster (run with `--llm-mode graph`, or via the Streamlit "LangGraph +
+RAG" sub-toggle). It puts the LLM in the structural / existence /
+semantic-check seats, retrieving policy snippets from `adjuster_policy`
+and COA snippets from `coa_accounts` Chroma collections. Six nodes, three
+running in parallel via a reducer-backed `findings` channel.
+
+This variant exists so the deliverable can *demonstrate*, not just
+*claim*, that putting an LLM in the arithmetic seat is strictly worse
+than pure code: slower, more expensive, non-deterministic, harder to
+audit, and weaker on simple arithmetic checks. The Streamlit Compare view
+runs all three (deterministic / LLM-prose / LangGraph + RAG) side-by-side
+per JE so the comparison is observable, not a slide. Install the heavy
+deps with `pip install -r requirements-llm.txt`.
+
 ## Setup
 
 ```bash
@@ -41,10 +58,13 @@ Stdlib-only mode works with no install.
 # template explanations (no API key needed)
 python3 main.py --inputs ../inputs --out output
 
-# LLM-generated explanations — Anthropic preferred, OpenAI fallback
-ANTHROPIC_API_KEY=sk-ant-... python3 main.py --inputs ../inputs --out output --llm
-# or
-OPENAI_API_KEY=sk-...        python3 main.py --inputs ../inputs --out output --llm
+# LLM-generated explanations only — code still owns decisions and findings
+ANTHROPIC_API_KEY=sk-ant-... python3 main.py --inputs ../inputs --out output --llm-mode prose
+
+# LangGraph + Chroma RAG variant — LLM in the structural seats too
+# (demonstration path; see "A second LLM variant" above)
+pip install -r requirements-llm.txt
+ANTHROPIC_API_KEY=sk-ant-... python3 main.py --inputs ../inputs --out output --llm-mode graph
 ```
 
 Provider preference (in `adjuster/llm.py`): Anthropic if `ANTHROPIC_API_KEY`

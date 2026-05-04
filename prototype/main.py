@@ -21,14 +21,33 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Manual adjustments validator")
     parser.add_argument("--inputs", type=Path, required=True, help="Path to inputs directory")
     parser.add_argument("--out", type=Path, required=True, help="Output directory")
-    parser.add_argument("--llm", action="store_true", help="Use Claude for explanations")
+    parser.add_argument(
+        "--llm-mode",
+        choices=["off", "prose", "graph"],
+        default=None,
+        help=(
+            "off (default) = pure deterministic + template prose; "
+            "prose = deterministic decisions + LLM-rewritten explanation; "
+            "graph = LangGraph + Chroma RAG, LLM in structural/existence/semantic seats."
+        ),
+    )
+    parser.add_argument(
+        "--llm", action="store_true",
+        help="Back-compat shortcut for --llm-mode prose.",
+    )
     args = parser.parse_args()
+
+    if args.llm_mode is None:
+        args.llm_mode = "prose" if args.llm else "off"
 
     coa = load_coa(args.inputs / "chart_of_accounts.csv")
     period, fcy, entries = load_adjustments(args.inputs / "manual_adjustments.json")
-    print(f"Loaded {len(coa)} COA accounts; {len(entries)} entries for {period} ({fcy}).")
+    print(
+        f"Loaded {len(coa)} COA accounts; {len(entries)} entries for "
+        f"{period} ({fcy}). LLM mode: {args.llm_mode}."
+    )
 
-    records = decide_batch(entries, coa, use_llm=args.llm)
+    records = decide_batch(entries, coa, llm_mode=args.llm_mode)
 
     args.out.mkdir(parents=True, exist_ok=True)
     write_decisions_json(records, args.out / "decisions.json")
