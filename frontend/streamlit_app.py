@@ -19,6 +19,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -595,6 +596,144 @@ def _section(title: str, hint: str = "") -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Charts (Altair) — bundled with Streamlit, no extra deps
+# ---------------------------------------------------------------------------
+
+_DECISION_DOMAIN = ["Accept", "Hold for review", "Reject"]
+_DECISION_RANGE = [PALETTE["accept"], PALETTE["quarantine"], PALETTE["reject"]]
+_SEVERITY_DOMAIN = ["error", "warning", "info"]
+_SEVERITY_RANGE = [PALETTE["error"], PALETTE["warning"], PALETTE["info"]]
+
+
+def _decision_bar_chart(df: pd.DataFrame) -> alt.Chart:
+    """Horizontal bar — Accept (emerald) / Hold (amber) / Reject (red)."""
+    return (
+        alt.Chart(df)
+        .mark_bar(cornerRadiusEnd=4, height=26)
+        .encode(
+            y=alt.Y(
+                "Decision:N",
+                sort=_DECISION_DOMAIN,
+                axis=alt.Axis(
+                    title=None,
+                    labelFontSize=12,
+                    labelColor=PALETTE["ink"],
+                    domain=False,
+                    ticks=False,
+                ),
+            ),
+            x=alt.X(
+                "Count:Q",
+                axis=alt.Axis(
+                    title=None,
+                    format="d",
+                    grid=True,
+                    gridColor=PALETTE["border"],
+                    labelColor=PALETTE["muted"],
+                    domain=False,
+                    ticks=False,
+                ),
+            ),
+            color=alt.Color(
+                "Decision:N",
+                scale=alt.Scale(domain=_DECISION_DOMAIN, range=_DECISION_RANGE),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip("Decision:N", title="Decision"),
+                alt.Tooltip("Count:Q", title="Entries"),
+            ],
+        )
+        .properties(height=140)
+        .configure_view(strokeWidth=0)
+        .configure_axis(labelFont="-apple-system, system-ui, sans-serif")
+    )
+
+
+def _severity_donut(records: list[DecisionRecord]) -> alt.Chart | None:
+    """Donut for the error / warning / info mix across all findings."""
+    rows = [{"Severity": f.severity} for r in records for f in r.findings]
+    if not rows:
+        return None
+    sdf = pd.DataFrame(rows).value_counts("Severity").reset_index(name="Count")
+    return (
+        alt.Chart(sdf)
+        .mark_arc(innerRadius=55, outerRadius=85, stroke=PALETTE["surface"], strokeWidth=2)
+        .encode(
+            theta=alt.Theta("Count:Q", stack=True),
+            color=alt.Color(
+                "Severity:N",
+                scale=alt.Scale(domain=_SEVERITY_DOMAIN, range=_SEVERITY_RANGE),
+                legend=alt.Legend(
+                    orient="right",
+                    title=None,
+                    labelColor=PALETTE["muted"],
+                    symbolType="circle",
+                    symbolSize=120,
+                ),
+            ),
+            tooltip=[
+                alt.Tooltip("Severity:N", title="Severity"),
+                alt.Tooltip("Count:Q", title="Findings"),
+            ],
+        )
+        .properties(height=200)
+        .configure_view(strokeWidth=0)
+    )
+
+
+def _findings_bar_chart(agg: pd.DataFrame) -> alt.Chart:
+    """Horizontal bar of finding codes, colored by severity."""
+    return (
+        alt.Chart(agg)
+        .mark_bar(cornerRadiusEnd=4, height=20)
+        .encode(
+            y=alt.Y(
+                "Code:N",
+                sort="-x",
+                axis=alt.Axis(
+                    title=None,
+                    labelFontSize=11,
+                    labelColor=PALETTE["ink"],
+                    domain=False,
+                    ticks=False,
+                ),
+            ),
+            x=alt.X(
+                "Count:Q",
+                axis=alt.Axis(
+                    title=None,
+                    format="d",
+                    grid=True,
+                    gridColor=PALETTE["border"],
+                    labelColor=PALETTE["muted"],
+                    domain=False,
+                    ticks=False,
+                ),
+            ),
+            color=alt.Color(
+                "Severity:N",
+                scale=alt.Scale(domain=_SEVERITY_DOMAIN, range=_SEVERITY_RANGE),
+                legend=alt.Legend(
+                    orient="top",
+                    title=None,
+                    labelColor=PALETTE["muted"],
+                    symbolType="circle",
+                    symbolSize=120,
+                ),
+            ),
+            tooltip=[
+                alt.Tooltip("Code:N", title="Finding code"),
+                alt.Tooltip("Severity:N", title="Severity"),
+                alt.Tooltip("Count:Q", title="Count"),
+            ],
+        )
+        .properties(height=alt.Step(32))
+        .configure_view(strokeWidth=0)
+    )
+
+
 def _je_lines_table(je) -> str:
     rows = ""
     for i, line in enumerate(je.lines):
@@ -1101,21 +1240,29 @@ with tab_overview:
             for k in ["accept", "quarantine", "reject"]
         ]
     )
-    col_chart, col_table = st.columns([2, 1])
+    col_chart, col_donut = st.columns([3, 2])
     with col_chart:
-        st.bar_chart(df.set_index("Decision"), height=220, color="#0f172a")
-    with col_table:
-        with st.container(border=True):
-            for _, row in df.iterrows():
-                st.markdown(
-                    f"<div style='display:flex;justify-content:space-between;"
-                    f"padding:8px 4px;border-bottom:1px solid var(--border);"
-                    f"font-size:13px'>"
-                    f"<span>{row['Decision']}</span>"
-                    f"<strong style='font-variant-numeric:tabular-nums'>{row['Count']}</strong>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
+        st.altair_chart(_decision_bar_chart(df), use_container_width=True)
+    with col_donut:
+        donut = _severity_donut(primary)
+        if donut is not None:
+            st.markdown(
+                '<div style="font-size:11px;font-weight:600;color:var(--muted);'
+                'text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">'
+                'Findings by severity</div>',
+                unsafe_allow_html=True,
+            )
+            st.altair_chart(donut, use_container_width=True)
+        else:
+            st.markdown(
+                '<div style="border:1px solid var(--border);border-radius:8px;'
+                'padding:16px;text-align:center;color:var(--muted);font-size:13px;'
+                'background:var(--subtle);height:200px;display:flex;'
+                'align-items:center;justify-content:center;">'
+                'No findings on this batch'
+                '</div>',
+                unsafe_allow_html=True,
+            )
 
     _section("Findings by code", "what each detector caught across the batch")
     finding_rows = [
@@ -1124,17 +1271,12 @@ with tab_overview:
     ]
     if finding_rows:
         fdf = pd.DataFrame(finding_rows)
-        agg = fdf.groupby(["Code", "Severity"]).size().reset_index(name="Count")
-        st.dataframe(
-            agg,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Code": st.column_config.TextColumn("Finding code", width="medium"),
-                "Severity": st.column_config.TextColumn("Severity", width="small"),
-                "Count": st.column_config.NumberColumn("Count", width="small"),
-            },
+        agg = (
+            fdf.groupby(["Code", "Severity"], as_index=False)
+            .size()
+            .rename(columns={"size": "Count"})
         )
+        st.altair_chart(_findings_bar_chart(agg), use_container_width=True)
     else:
         st.info("No findings on the seeded batch.")
 
