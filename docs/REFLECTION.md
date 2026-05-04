@@ -3,9 +3,9 @@
 ## A note on the materiality policy
 
 The thresholds and tier behavior used in this slice were not picked from a
-hat. The three clarifying questions in `email_draft.md` were sent before any
-code was written, and Amit Patel replied on **2026-04-30** with a tiered
-policy: ≤$500 auto-correct (silent + logged), $500–$10k WARN with
+hat. Three clarifying questions were sent to Amit Patel before any code
+was written, and he replied on **2026-04-30** with a tiered policy:
+≤$500 auto-correct (silent + logged), $500–$10k WARN with
 reconciliation note (do not halt), >$10k or BS that does not foot HALT.
 The Adjuster's pipeline tiers, the `auto_correction` audit event, the
 `IMBALANCE_WARN` finding code, and the FX-rate fallback all transcribe that

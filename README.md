@@ -37,8 +37,6 @@ auto-corrections) structured `auto_correction` audit events land in
    underestimates.
 5. **[`docs/ASSUMPTIONS.md`](docs/ASSUMPTIONS.md)** — every threshold and policy with the config knob
    that controls it.
-6. **[`docs/email_draft.md`](docs/email_draft.md)** — the 3 clarifying questions that would precede this
-   work.
 
 ## Run the prototype
 
@@ -86,8 +84,7 @@ For the live Adjuster, the sidebar offers three modes:
 │   ├── ARCHITECTURE.md        ← main deliverable: full-system design
 │   ├── PLANNING.md            ← pre-build planning + slice ranking
 │   ├── REFLECTION.md          ← 1-page reflection (required)
-│   ├── ASSUMPTIONS.md         ← config-knob index for every threshold
-│   └── email_draft.md         ← 3 clarifying questions
+│   └── ASSUMPTIONS.md         ← config-knob index for every threshold
 ├── frontend/                  ← Streamlit reviewer dashboard
 │   ├── streamlit_app.py
 │   └── .streamlit/config.toml
