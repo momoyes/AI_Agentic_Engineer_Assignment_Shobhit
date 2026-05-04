@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from adjuster.loader import load_coa  # noqa: E402
-from adjuster.mapper import Mapper, MapperContext  # noqa: E402
+from adjuster.deterministic.mapper import Mapper, MapperContext  # noqa: E402
 
 
 class TestMapper(unittest.TestCase):

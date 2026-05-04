@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from adjuster.loader import load_adjustments, load_coa  # noqa: E402
-from adjuster.pipeline import decide_batch  # noqa: E402
+from adjuster.deterministic import decide_batch  # noqa: E402
 
 INPUTS = ROOT.parent / "inputs"
 

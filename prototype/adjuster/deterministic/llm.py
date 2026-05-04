@@ -13,10 +13,10 @@ import json
 import os
 from typing import TYPE_CHECKING
 
-from .config import CONFIG
+from ..config import CONFIG
 
 if TYPE_CHECKING:
-    from .models import DecisionRecord
+    from ..models import DecisionRecord
 
 
 SYSTEM_PROMPT = """You are a finance ops assistant. Given a structured journal-entry

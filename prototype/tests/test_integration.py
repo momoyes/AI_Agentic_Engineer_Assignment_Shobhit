@@ -121,7 +121,7 @@ class TestAutoCorrectionEvent(unittest.TestCase):
         _sys.path.insert(0, str(ROOT))
         from adjuster.loader import load_coa  # noqa: E402
         from adjuster.models import JELine, JournalEntry  # noqa: E402
-        from adjuster.pipeline import decide_one  # noqa: E402
+        from adjuster.deterministic.pipeline import decide_one  # noqa: E402
 
         coa = load_coa(INPUTS / "chart_of_accounts.csv")
         # $250 imbalance: well inside tier-a ($500 threshold).

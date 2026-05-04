@@ -34,9 +34,9 @@ import time
 from operator import add
 from typing import Annotated, TypedDict
 
-from .config import CONFIG
-from .llm import explain as llm_explain
-from .models import (
+from ..config import CONFIG
+from ..deterministic.llm import explain as llm_explain
+from ..models import (
     Account,
     DecisionRecord,
     Finding,
@@ -44,8 +44,8 @@ from .models import (
     MappingSuggestion,
     ProposedFix,
 )
-from .pipeline import HARD_ERROR_CODES
-from .validators import propose_balance_fix
+from ..deterministic.pipeline import HARD_ERROR_CODES
+from ..deterministic.validators import propose_balance_fix
 
 
 # ---------------------------------------------------------------------------

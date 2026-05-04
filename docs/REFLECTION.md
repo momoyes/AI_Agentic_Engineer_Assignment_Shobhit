@@ -13,7 +13,7 @@ reply directly. ASSUMPTIONS.md A0 traces the provenance.
 
 ## A demonstration: putting the LLM in the arithmetic seat
 
-The repo ships a second LLM variant — `prototype/adjuster/graph.py` — that
+The repo ships a second LLM variant — `prototype/adjuster/langgraph/graph.py` — that
 uses LangGraph + Chroma RAG to let the LLM run the structural, existence,
 and semantic checks against retrieved policy and COA snippets. It *works*.
 On the seeded data it produces decisions broadly aligned with the

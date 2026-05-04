@@ -21,10 +21,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .models import Account
+    from ..models import Account
 
 
-_CHROMA_DIR = Path(__file__).resolve().parent.parent / "output" / "chroma"
+# prototype/output/chroma/ — three .parent calls because this file is now
+# at prototype/adjuster/langgraph/rag.py
+_CHROMA_DIR = Path(__file__).resolve().parents[2] / "output" / "chroma"
 
 _POLICY_DOCS = [
     {

@@ -114,7 +114,7 @@ halt the close.
 
 ### A12 — Tiered handling for unbalanced JEs
 Mirror of A1 expressed in terms of pipeline behavior. Implemented in
-`prototype/adjuster/pipeline.py::_decide_unbalanced`:
+`prototype/adjuster/deterministic/pipeline.py::_decide_unbalanced`:
 
 | Tier | Trigger | Response | Audit |
 |---|---|---|---|

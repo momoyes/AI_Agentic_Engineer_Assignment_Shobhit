@@ -21,9 +21,9 @@ Tiered handling for UNBALANCED findings (per Amit Patel email 2026-04-30):
 See ARCHITECTURE.md §5 and ASSUMPTIONS.md A1/A12."""
 from __future__ import annotations
 
-from .config import CONFIG
+from ..config import CONFIG
 from .llm import explain
-from .models import (
+from ..models import (
     Account,
     DecisionRecord,
     Finding,
@@ -72,7 +72,7 @@ def decide_one(
         llm_mode = "prose" if use_llm else "off"
 
     if llm_mode == "graph":
-        from .graph import run_graph
+        from ..langgraph.graph import run_graph
         return run_graph(je, coa)
 
     findings = run_all_checks(je, coa)

@@ -42,7 +42,7 @@ class TestLangGraphAdjuster(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from adjuster.loader import load_adjustments, load_coa  # noqa: E402
-        from adjuster.graph import run_graph  # noqa: E402
+        from adjuster.langgraph.graph import run_graph  # noqa: E402
 
         cls.coa = load_coa(INPUTS / "chart_of_accounts.csv")
         _, _, cls.entries = load_adjustments(INPUTS / "manual_adjustments.json")

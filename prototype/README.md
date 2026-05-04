@@ -6,7 +6,7 @@ quarantine, and emits plain-English explanations for each decision.
 
 ## Why this slice
 
-See `../PLANNING.md` for the full reasoning. Short version: this slice
+See `../docs/PLANNING.md` for the full reasoning. Short version: this slice
 exercises every failure mode in the brief (debit ≠ credit, unmapped
 accounts, circular intercompany, ambiguous categories) on bounded scope, and
 it forces a clean separation between deterministic validation and
@@ -16,10 +16,10 @@ LLM-generated explanation.
 
 | Layer | Implementation |
 |---|---|
-| Structural validation (balance, account existence, sign rules, dates) | Pure code (`adjuster/validators.py`) |
-| Decision logic (accept / reject / quarantine + rule mapping) | Pure code (`adjuster/pipeline.py`) |
-| Mapping suggestions for unknown accounts (candidate generation + ranking) | Pure mathematics — hand-rolled numeric-prefix similarity + Levenshtein edit-distance ratio + Jaccard token overlap, blended 70/30 (code-prefix vs. name-similarity). All three implementations are visible in `adjuster/validators.py`; no fuzzy-string library. |
-| Plain-English explanation of the decision | LLM with deterministic template fallback (`adjuster/llm.py`) |
+| Structural validation (balance, account existence, sign rules, dates) | Pure code (`adjuster/deterministic/validators.py`) |
+| Decision logic (accept / reject / quarantine + rule mapping) | Pure code (`adjuster/deterministic/pipeline.py`) |
+| Mapping suggestions for unknown accounts (candidate generation + ranking) | Pure mathematics — hand-rolled numeric-prefix similarity + Levenshtein edit-distance ratio + Jaccard token overlap, blended 70/30 (code-prefix vs. name-similarity). All three implementations are visible in `adjuster/deterministic/validators.py`; no fuzzy-string library. |
+| Plain-English explanation of the decision | LLM with deterministic template fallback (`adjuster/deterministic/llm.py`) |
 
 The LLM never produces a number, never decides accept/reject, and never
 mints a mapping. It chooses among code-generated candidates and writes
@@ -27,7 +27,7 @@ human-readable prose.
 
 ### A second LLM variant — for comparison only
 
-`adjuster/graph.py` ships a **LangGraph + Chroma RAG** variant of the
+`adjuster/langgraph/graph.py` ships a **LangGraph + Chroma RAG** variant of the
 Adjuster (run with `--llm-mode graph`, or via the Streamlit "LangGraph +
 RAG" sub-toggle). It puts the LLM in the structural / existence /
 semantic-check seats, retrieving policy snippets from `adjuster_policy`
@@ -67,7 +67,7 @@ pip install -r requirements-llm.txt
 ANTHROPIC_API_KEY=sk-ant-... python3 main.py --inputs ../inputs --out output --llm-mode graph
 ```
 
-Provider preference (in `adjuster/llm.py`): Anthropic if `ANTHROPIC_API_KEY`
+Provider preference (in `adjuster/deterministic/llm.py`): Anthropic if `ANTHROPIC_API_KEY`
 is set → OpenAI if `OPENAI_API_KEY` is set → deterministic template if
 neither. The `--llm` flag never crashes on missing keys; it falls through to
 the template.
@@ -81,7 +81,7 @@ Outputs land in `output/`:
 
 Headline counts on the bundled batch: **8 accept / 2 quarantine / 0 reject**
 under the materiality policy confirmed by Amit Patel on 2026-04-30 (see
-`../ASSUMPTIONS.md` A1).
+`../docs/ASSUMPTIONS.md` A1).
 
 | JE | Decision | Why |
 |---|---|---|
@@ -110,29 +110,36 @@ python3 -m unittest discover tests
 
 ```
 prototype/
-├── main.py                  # CLI entry
-├── requirements.txt
+├── main.py                       # CLI entry
+├── requirements.txt              # base deps (anthropic, openai)
+├── requirements-llm.txt          # heavy deps for graph mode (langgraph, chromadb)
 ├── adjuster/
 │   ├── __init__.py
-│   ├── config.py            # thresholds, period, materiality
-│   ├── models.py            # dataclasses (JE, Finding, Decision)
-│   ├── loader.py            # CSV/JSON ingestion
-│   ├── validators.py        # deterministic checks
-│   ├── llm.py               # optional explainer with template fallback
-│   └── pipeline.py          # orchestrates check → decide → explain
-├── tests/
-│   └── test_validators.py
-└── output/                  # generated artifacts (gitignored)
+│   ├── config.py                 # thresholds, period, materiality
+│   ├── models.py                 # dataclasses (JE, Finding, Decision)
+│   ├── loader.py                 # CSV/JSON ingestion
+│   ├── deterministic/            # pure-code Adjuster (the recommended path)
+│   │   ├── __init__.py
+│   │   ├── validators.py         # structural checks + pure-math suggester
+│   │   ├── pipeline.py           # orchestrates check → decide → explain
+│   │   ├── mapper.py             # production-Mapper interface stub
+│   │   └── llm.py                # optional prose explainer
+│   └── langgraph/                # LangGraph + Chroma RAG variant (demo only)
+│       ├── __init__.py
+│       ├── graph.py              # 6-node pipeline; LLM in checks
+│       └── rag.py                # Chroma adjuster_policy + coa_accounts
+├── tests/                        # 25 deterministic + 3 graph (key-gated)
+└── output/                       # generated artifacts (gitignored)
 ```
 
 ## Validators implemented but not triggered by the seeded data
 
-- **`DATE_OUT_OF_PERIOD`** — implemented in `validators.py`, but every JE in
+- **`DATE_OUT_OF_PERIOD`** — implemented in `deterministic/validators.py`, but every JE in
   `manual_adjustments.json` is dated within 2024-Q4, so it never fires on
   this dataset. Included for completeness; covered by a unit test.
 
 ## Limitations
 
 This is one slice. It assumes a valid COA file, does not perform FX
-translation, and does not assemble statements. See `../ARCHITECTURE.md`
+translation, and does not assemble statements. See `../docs/ARCHITECTURE.md`
 for where this slice sits in the full system.

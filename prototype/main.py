@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from adjuster.loader import load_adjustments, load_coa
 from adjuster.models import DecisionRecord
-from adjuster.pipeline import decide_batch
+from adjuster.deterministic import decide_batch
 
 
 def main() -> int:

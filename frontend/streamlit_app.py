@@ -22,14 +22,26 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT))
+# frontend/ lives at the project root; the Adjuster package is one level
+# down at prototype/adjuster/. Add that to sys.path so `import adjuster`
+# resolves regardless of the cwd Streamlit was launched from.
+HERE = Path(__file__).resolve().parent
+PROJECT_ROOT = HERE.parent
+sys.path.insert(0, str(PROJECT_ROOT / "prototype"))
+
+# Load .env so a Streamlit launched without `set -a; source .env` still
+# picks up ANTHROPIC_API_KEY / OPENAI_API_KEY.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(PROJECT_ROOT / ".env", override=False)
+except ImportError:
+    pass
 
 from adjuster.loader import load_adjustments, load_coa  # noqa: E402
 from adjuster.models import DecisionRecord  # noqa: E402
-from adjuster.pipeline import decide_batch  # noqa: E402
+from adjuster.deterministic import decide_batch  # noqa: E402
 
-INPUTS = ROOT.parent / "inputs"
+INPUTS = PROJECT_ROOT / "inputs"
 
 # ---------------------------------------------------------------------------
 # Theme tokens
@@ -1167,7 +1179,7 @@ with tab_audit:
         "Append-only event log",
         "every decision, finding, and tier-a auto-correction is one JSON line",
     )
-    log_path = ROOT / "output" / "audit_log.jsonl"
+    log_path = PROJECT_ROOT / "prototype" / "output" / "audit_log.jsonl"
     if not log_path.exists():
         st.info(
             "No `output/audit_log.jsonl` yet. Run `python3 main.py --inputs ../inputs "

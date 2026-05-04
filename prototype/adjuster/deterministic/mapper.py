@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .models import Account, MappingSuggestion
+from ..models import Account, MappingSuggestion
 from .validators import suggest_mappings as generate_candidates
 
 

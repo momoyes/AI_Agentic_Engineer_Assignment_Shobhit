@@ -79,7 +79,7 @@ the workflow with an override event.
 
 | Agent | Purpose | Inputs | Outputs | LLM use |
 |---|---|---|---|---|
-| **Mapper** | Resolve unknown account codes to existing COA nodes; detect renamed accounts across periods. | TB row or JE line with unmatched code; COA; prior-period TB; optional history of human overrides. | Ranked candidate list with confidences; `decision = {auto-accept, suggest, escalate}`. | LLM **chooses** among code-generated candidates; never mints a code. Confidence below `min_mapping_confidence` → escalate. The interface is in `prototype/adjuster/mapper.py` with the prefix-similarity selector; the production LLM selector is the documented seam. |
+| **Mapper** | Resolve unknown account codes to existing COA nodes; detect renamed accounts across periods. | TB row or JE line with unmatched code; COA; prior-period TB; optional history of human overrides. | Ranked candidate list with confidences; `decision = {auto-accept, suggest, escalate}`. | LLM **chooses** among code-generated candidates; never mints a code. Confidence below `min_mapping_confidence` → escalate. The interface is in `prototype/adjuster/deterministic/mapper.py` with the prefix-similarity selector; the production LLM selector is the documented seam. |
 | **Adjuster** | Validate manual JEs (the slice built in `prototype/`). | One JE at a time; COA; period config. | `Finding[]`, `Decision ∈ {accept, quarantine, reject}`, mapping suggestions, plain-English explanation. | Used **only** for prose; arithmetic/structural checks are pure code. |
 | **FX** | Translate non-functional-currency balances to USD using the rate matrix; compute opening/closing CTA. | TB rows tagged with currency; `fx_rates.csv`; prior-period closing rates. | Per-row USD amount with rate used + source citation; CTA delta to `3310`. | None. Pure arithmetic. Block the run on missing required rate. |
 | **Statement Builder** | Roll up post-adjustment, post-translation TB into BS / P&L / CF / SOCIE per the COA hierarchy. | Final TB after Mapper, Adjuster, FX; COA tree; prior-period statements for comparatives. | Four statements + lineage graph (every cell → contributing source rows). | None. Anti-pattern to use one. |
@@ -258,7 +258,7 @@ auto-applied — the LLM (when used) only writes the rationale prose around
 it. Same architectural rule as everywhere else: code does the math, LLM does
 the prose.
 
-The function is `propose_balance_fix` in `prototype/adjuster/validators.py`
+The function is `propose_balance_fix` in `prototype/adjuster/deterministic/validators.py`
 and the warn-band integration is exercised by
 `tests/test_integration.py::test_je002_warn_band_with_proposal`. The tier-a
 auto-correction path is exercised by
@@ -407,14 +407,14 @@ architectural pattern.
 The Adjuster specialist from §2 is built end-to-end. It instantiates the
 architecture above:
 
-- **Deterministic validators** in `prototype/adjuster/validators.py`:
+- **Deterministic validators** in `prototype/adjuster/deterministic/validators.py`:
   balance, account existence, header check, sign rules, date check,
   circular-IC detection, mapping candidate generation. **Zero LLM
   involvement.**
-- **Decision logic** in `prototype/adjuster/pipeline.py`: hard structural
+- **Decision logic** in `prototype/adjuster/deterministic/pipeline.py`: hard structural
   errors → reject; recoverable findings (unmapped, circular) → quarantine;
   clean → accept. Configurable thresholds in `config.py`.
-- **LLM explainer** in `prototype/adjuster/llm.py`: optional, with a
+- **LLM explainer** in `prototype/adjuster/deterministic/llm.py`: optional, with a
   deterministic template fallback so the prototype runs zero-deps. The
   LLM only writes prose; it does not validate, decide, or generate
   mappings.
@@ -450,7 +450,7 @@ Output on the seeded inputs (8 accept / 2 quarantine / 0 reject):
 
 ## 10b. The LangGraph + RAG variant — a deliberate counter-example
 
-`prototype/adjuster/graph.py` ships a second implementation of the Adjuster
+`prototype/adjuster/langgraph/graph.py` ships a second implementation of the Adjuster
 that does the opposite of the rule in §3 — it lets the LLM run the
 structural, existence, and semantic checks, with policy and COA snippets
 retrieved from a Chroma vector store. Six LangGraph nodes, three of them

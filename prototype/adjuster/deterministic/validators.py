@@ -18,8 +18,8 @@ A reviewer can audit the math line-by-line; nothing happens behind a
 library call."""
 from __future__ import annotations
 
-from .config import CONFIG
-from .models import Account, Finding, JournalEntry, MappingSuggestion, ProposedFix
+from ..config import CONFIG
+from ..models import Account, Finding, JournalEntry, MappingSuggestion, ProposedFix
 
 
 def check_balanced(je: JournalEntry) -> list[Finding]:

@@ -4,7 +4,7 @@
 > **2026-04-30** with a tiered materiality policy, an explicit
 > "do-not-auto-create accounts" rule, and a "do-not-halt on FX gaps"
 > fallback. The reply is transcribed verbatim in `ASSUMPTIONS.md` A1–A3 and
-> drives the pipeline tiers in `prototype/adjuster/pipeline.py`.
+> drives the pipeline tiers in `prototype/adjuster/deterministic/pipeline.py`.
 
 **To:** [recruiter / hiring manager]
 **Subject:** AI Agentic Engineer take-home — three clarifying questions before I start

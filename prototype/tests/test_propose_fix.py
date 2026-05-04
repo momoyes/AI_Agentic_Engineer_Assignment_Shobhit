@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from adjuster.models import JELine, JournalEntry  # noqa: E402
-from adjuster.validators import propose_balance_fix  # noqa: E402
+from adjuster.deterministic.validators import propose_balance_fix  # noqa: E402
 
 
 def _je(*lines: tuple[str, float, float]) -> JournalEntry:
