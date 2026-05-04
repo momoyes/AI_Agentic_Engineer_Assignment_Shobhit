@@ -490,6 +490,32 @@ deterministically, with the source of the answer visible in
 operationally inferior. That's the lesson the brief is asking the
 candidate to learn.
 
+### Observed run-to-run variance
+
+This is not a hypothetical. Two consecutive runs of `--llm-mode graph`
+against the seeded 10 JEs produced different headline counts:
+
+| Run | accept | quarantine | reject | What flipped |
+|---|---|---|---|---|
+| 1 | 8 | 2 | 0 | Matches deterministic exactly. |
+| 2 | 9 | 1 | 0 | **JE-005 went accept**, even though the `existence` node correctly emitted `UNMAPPED_ACCOUNT` for code `6315`. The `decide` LLM overrode it. |
+
+The deterministic pipeline catches `UNMAPPED_ACCOUNT` in
+`QUARANTINE_CODES` (`prototype/adjuster/deterministic/pipeline.py:39`) so
+the decision is locked before any LLM sees it. In the graph variant only
+`HARD_ERROR_CODES` get the code-fast-path; `UNMAPPED_ACCOUNT` and
+`CIRCULAR_NET_ZERO` flow into the LLM `decide_node`, where they are at
+the mercy of whatever the model happens to weight on that draw. Same
+input, same prompts, same temperature, different decision — exactly the
+property the brief is warning against when it says "AI tools may
+behave differently across runs."
+
+The fix in the deterministic path is one line — add the codes to a
+fast-path set. The fix in the LangGraph path is to keep adding code
+guardrails until the LLM is no longer making decisions, at which point
+you have rebuilt the deterministic path with extra steps and a 5,000×
+cost premium. That's the architectural argument made concrete.
+
 ## 11. Summary in five bullets
 
 - **Code does the math; LLMs do the labels and the prose.** The LLM never
