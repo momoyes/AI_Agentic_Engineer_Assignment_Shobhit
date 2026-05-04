@@ -31,7 +31,7 @@ class Config:
     period: Period = Period()
     mapping_top_k: int = 3                   # candidates surfaced to humans
     min_mapping_confidence: float = 0.55     # below this, escalate
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-4o-2024-08-06"   # supports strict json_schema
     anthropic_model: str = "claude-opus-4-7"
 
 

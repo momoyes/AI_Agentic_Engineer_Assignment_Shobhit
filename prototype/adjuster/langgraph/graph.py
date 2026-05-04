@@ -64,11 +64,158 @@ class AdjusterState(TypedDict, total=False):
 
 
 # ---------------------------------------------------------------------------
+# Strict JSON schemas — pinned per node so the model can only emit codes
+# the policy actually defines. Eliminates the "model invents JE_DATE_OUT_OF_PERIOD"
+# class of hallucination.
+# ---------------------------------------------------------------------------
+
+_STRUCTURAL_SCHEMA = {
+    "name": "structural_findings",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "findings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "code": {
+                            "type": "string",
+                            "enum": [
+                                "UNBALANCED",
+                                "NEGATIVE_AMOUNT",
+                                "DEBIT_AND_CREDIT_ON_SAME_LINE",
+                                "DATE_OUT_OF_PERIOD",
+                                "POSTING_TO_HEADER",
+                            ],
+                        },
+                        "severity": {"type": "string", "enum": ["error", "warning", "info"]},
+                        "message": {"type": "string"},
+                        "line_index": {"type": ["integer", "null"]},
+                    },
+                    "required": ["code", "severity", "message", "line_index"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["findings"],
+        "additionalProperties": False,
+    },
+}
+
+_EXISTENCE_SCHEMA = {
+    "name": "existence_check",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "finding": {
+                "anyOf": [
+                    {"type": "null"},
+                    {
+                        "type": "object",
+                        "properties": {
+                            "code": {
+                                "type": "string",
+                                "enum": ["UNMAPPED_ACCOUNT", "POSTING_TO_HEADER"],
+                            },
+                            "severity": {"type": "string", "enum": ["error", "warning"]},
+                            "message": {"type": "string"},
+                            "line_index": {"type": ["integer", "null"]},
+                        },
+                        "required": ["code", "severity", "message", "line_index"],
+                        "additionalProperties": False,
+                    },
+                ],
+            },
+            "suggestion": {
+                "anyOf": [
+                    {"type": "null"},
+                    {
+                        "type": "object",
+                        "properties": {
+                            "candidate_code": {"type": "string"},
+                            "candidate_name": {"type": "string"},
+                            "confidence": {"type": "number"},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["candidate_code", "candidate_name", "confidence", "reason"],
+                        "additionalProperties": False,
+                    },
+                ],
+            },
+        },
+        "required": ["finding", "suggestion"],
+        "additionalProperties": False,
+    },
+}
+
+_SEMANTIC_SCHEMA = {
+    "name": "semantic_anomalies",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "findings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "code": {"type": "string", "enum": ["SEMANTIC_ANOMALY"]},
+                        "severity": {"type": "string", "enum": ["info", "warning"]},
+                        "message": {"type": "string"},
+                        "line_index": {"type": ["integer", "null"]},
+                    },
+                    "required": ["code", "severity", "message", "line_index"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["findings"],
+        "additionalProperties": False,
+    },
+}
+
+_DECIDE_SCHEMA = {
+    "name": "tier_decision",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "decision": {"type": "string", "enum": ["accept", "quarantine", "reject"]},
+            "replace_imbalance_with": {
+                "anyOf": [
+                    {"type": "null"},
+                    {"type": "string", "enum": ["AUTO_CORRECTED", "IMBALANCE_WARN"]},
+                ],
+            },
+            "rationale": {"type": "string"},
+        },
+        "required": ["decision", "replace_imbalance_with", "rationale"],
+        "additionalProperties": False,
+    },
+}
+
+
+# ---------------------------------------------------------------------------
 # Provider-agnostic JSON call
 # ---------------------------------------------------------------------------
 
-def _chat_json(*, system: str, user: str, max_tokens: int = 600) -> tuple[dict, dict]:
+def _chat_json(
+    *,
+    system: str,
+    user: str,
+    max_tokens: int = 600,
+    json_schema: dict | None = None,
+) -> tuple[dict, dict]:
     """Call whichever LLM provider is configured. Return (parsed_json, telemetry).
+
+    `json_schema` is OpenAI's strict-mode schema dict (with name/strict/schema
+    keys). When provided, the OpenAI branch uses `response_format=json_schema`
+    so the model can only return values that match. The Anthropic branch
+    embeds the schema into the system prompt (Claude doesn't have a native
+    strict-schema mode here) and parses the result.
 
     Anthropic is preferred (matches the rest of the prototype). Falls back to
     OpenAI. Raises if neither is configured — graph mode is not supposed to
@@ -78,14 +225,20 @@ def _chat_json(*, system: str, user: str, max_tokens: int = 600) -> tuple[dict, 
     if os.environ.get("ANTHROPIC_API_KEY"):
         from anthropic import Anthropic
         client = Anthropic()
+        sys_prompt = system + "\n\nReply with a single JSON object. No prose."
+        if json_schema is not None:
+            sys_prompt += (
+                "\n\nThe JSON MUST conform to this schema (treat enums as the "
+                "complete and only set of allowed values):\n"
+                + json.dumps(json_schema["schema"], indent=2)
+            )
         resp = client.messages.create(
             model=CONFIG.anthropic_model,
             max_tokens=max_tokens,
-            system=system + "\n\nReply with a single JSON object. No prose.",
+            system=sys_prompt,
             messages=[{"role": "user", "content": user}],
         )
         text = resp.content[0].text.strip()
-        # strip ```json fences if the model added them
         if text.startswith("```"):
             text = text.split("```", 2)[1]
             if text.startswith("json"):
@@ -103,10 +256,14 @@ def _chat_json(*, system: str, user: str, max_tokens: int = 600) -> tuple[dict, 
     if os.environ.get("OPENAI_API_KEY"):
         from openai import OpenAI
         client = OpenAI()
+        if json_schema is not None:
+            response_format = {"type": "json_schema", "json_schema": json_schema}
+        else:
+            response_format = {"type": "json_object"}
         resp = client.chat.completions.create(
             model=CONFIG.openai_model,
             max_tokens=max_tokens,
-            response_format={"type": "json_object"},
+            response_format=response_format,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -157,14 +314,23 @@ def structural_node(state: AdjusterState) -> dict:
     system = (
         "You are an Adjuster policy enforcement agent. Apply the policy "
         "snippets below to the journal entry. Only emit findings the policy "
-        "supports. Output JSON: {\"findings\": [{\"code\": str, \"severity\": "
-        "str, \"message\": str, \"line_index\": int|null, \"detail\": object}]}.\n\n"
+        "actually supports for THIS entry; if a check passes, do NOT emit a "
+        "finding for it.\n\n"
+        f"Reporting period: {CONFIG.period.label} — {CONFIG.period.start} "
+        f"through {CONFIG.period.end} inclusive. A JE date that falls within "
+        "this window (string compare on ISO YYYY-MM-DD works) is in-period. "
+        "Do NOT emit DATE_OUT_OF_PERIOD for in-period dates.\n\n"
+        "Allowed finding codes (use these exactly, no others): UNBALANCED, "
+        "NEGATIVE_AMOUNT, DEBIT_AND_CREDIT_ON_SAME_LINE, DATE_OUT_OF_PERIOD, "
+        "POSTING_TO_HEADER.\n\n"
         "Policy snippets:\n"
         + "\n---\n".join(s["text"] for s in snippets)
     )
     user = json.dumps(_je_to_dict(je))
     try:
-        result, telemetry = _chat_json(system=system, user=user)
+        result, telemetry = _chat_json(
+            system=system, user=user, json_schema=_STRUCTURAL_SCHEMA,
+        )
     except Exception as exc:
         return {
             "trace": [{"node": "structural", "error": str(exc)}],
@@ -201,13 +367,15 @@ def existence_node(state: AdjusterState) -> dict:
         )
         snippets_log.append({"line": i, "candidates": [c["code"] for c in candidates]})
         system = (
-            "You are a COA mapping agent. Decide whether the cited account "
-            "code exists or is a header. If it does not exist as a leaf, "
-            "pick the best candidate from the list and emit an "
-            "UNMAPPED_ACCOUNT finding plus a suggestion. Output JSON: "
-            "{\"finding\": object|null, \"suggestion\": "
-            "{\"candidate_code\": str, \"candidate_name\": str, \"confidence\": "
-            "number, \"reason\": str} | null}."
+            "You are a COA mapping agent. The user message tells you whether "
+            "the cited account is in the COA and whether it is a Header. "
+            "Rules: if `in_coa` is false → emit an UNMAPPED_ACCOUNT finding "
+            "(severity error) AND pick the best candidate as the suggestion. "
+            "If `is_header` is true → emit a POSTING_TO_HEADER finding "
+            "(severity error), suggestion may be null. Otherwise → both "
+            "fields null. Allowed finding codes: UNMAPPED_ACCOUNT, "
+            "POSTING_TO_HEADER. Pick suggestions ONLY from the supplied "
+            "`candidates` list — never invent a code."
         )
         user = json.dumps({
             "line_index": i, "cited_account": line.account, "memo": line.memo,
@@ -216,7 +384,10 @@ def existence_node(state: AdjusterState) -> dict:
             "is_header": line.account in coa and coa[line.account].account_type == "Header",
         })
         try:
-            result, telemetry = _chat_json(system=system, user=user, max_tokens=400)
+            result, telemetry = _chat_json(
+                system=system, user=user, max_tokens=400,
+                json_schema=_EXISTENCE_SCHEMA,
+            )
         except Exception as exc:
             return {"trace": [{"node": "existence", "line": i, "error": str(exc)}]}
         provider = telemetry["provider"]
@@ -256,13 +427,15 @@ def semantic_node(state: AdjusterState) -> dict:
         "the memos and the line postings tell a coherent story. Examples of "
         "issues: a memo that says 'reverse' but the entry posts forward, an "
         "intercompany memo against a non-IC account, suspicious round amounts. "
-        "Output JSON: {\"findings\": [{\"code\": \"SEMANTIC_ANOMALY\", "
-        "\"severity\": \"info\"|\"warning\", \"message\": str}]}. Empty list "
-        "if nothing notable."
+        "Use code SEMANTIC_ANOMALY only. Empty findings list if nothing is "
+        "notable — do NOT manufacture concerns just to fill the output."
     )
     user = json.dumps(_je_to_dict(je))
     try:
-        result, telemetry = _chat_json(system=system, user=user, max_tokens=400)
+        result, telemetry = _chat_json(
+            system=system, user=user, max_tokens=400,
+            json_schema=_SEMANTIC_SCHEMA,
+        )
     except Exception as exc:
         return {"trace": [{"node": "semantic", "error": str(exc)}]}
     findings = [_finding_from_json(f, je.id) for f in result.get("findings", [])]
@@ -320,25 +493,37 @@ def decide_node(state: AdjusterState) -> dict:
         "tier accept quarantine reject imbalance threshold halt",
         n_results=5,
     )
+    abs_diff = abs(round(je.total_debit - je.total_credit, 2))
     system = (
         "You are the Adjuster decision agent. Apply the tiered policy "
-        "snippets to the findings and output JSON: {\"decision\": "
-        "\"accept\"|\"quarantine\"|\"reject\", \"replace_imbalance_with\": "
-        "\"AUTO_CORRECTED\"|\"IMBALANCE_WARN\"|null, \"rationale\": str}.\n\n"
+        "snippets to the findings.\n\n"
+        f"Materiality thresholds (USD): tier-a auto-correct ≤ "
+        f"{CONFIG.materiality.fx_rounding_abs:,.2f}; tier-b warn band > "
+        f"{CONFIG.materiality.fx_rounding_abs:,.2f} and ≤ "
+        f"{CONFIG.materiality.je_warn_band_max:,.2f}; tier-c reject > "
+        f"{CONFIG.materiality.je_halt_threshold:,.2f}.\n\n"
+        "If there is no UNBALANCED finding, set replace_imbalance_with to null. "
+        "If there is one and abs(diff) ≤ tier-a → AUTO_CORRECTED + accept. "
+        "If tier-b → IMBALANCE_WARN + accept. If tier-c → null + reject.\n\n"
+        "Decision must be one of: accept, quarantine, reject.\n\n"
         "Policy snippets:\n"
         + "\n---\n".join(s["text"] for s in snippets)
     )
     user = json.dumps({
         "je_id": je.id,
         "totals": {"debit": je.total_debit, "credit": je.total_credit,
-                   "diff": round(je.total_debit - je.total_credit, 2)},
+                   "diff": round(je.total_debit - je.total_credit, 2),
+                   "abs_diff": abs_diff},
         "findings": [
             {"code": f.code, "severity": f.severity, "message": f.message}
             for f in findings
         ],
     })
     try:
-        result, telemetry = _chat_json(system=system, user=user, max_tokens=400)
+        result, telemetry = _chat_json(
+            system=system, user=user, max_tokens=400,
+            json_schema=_DECIDE_SCHEMA,
+        )
     except Exception as exc:
         return {
             "decision": "reject",
