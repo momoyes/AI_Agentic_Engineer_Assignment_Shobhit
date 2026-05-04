@@ -72,8 +72,19 @@ def decide_one(je: JournalEntry, coa: dict[str, Account], use_llm: bool) -> Deci
         if decision == "quarantine":
             for f in findings:
                 if f.code == "UNMAPPED_ACCOUNT":
+                    # Pass the offending line's memo as a name hint so the
+                    # rapidfuzz-backed scorer can match on account semantics
+                    # (e.g. "Conf travel" → "Travel and Entertainment"), not
+                    # just numeric code prefix.
+                    line_memo: str | None = None
+                    if f.line_index is not None and f.line_index < len(je.lines):
+                        line_memo = je.lines[f.line_index].memo
                     suggestions.extend(
-                        suggest_mappings(f.detail.get("account", ""), coa)
+                        suggest_mappings(
+                            f.detail.get("account", ""),
+                            coa,
+                            name_hint=line_memo,
+                        )
                     )
 
     record = DecisionRecord(

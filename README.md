@@ -19,8 +19,8 @@ Patel via email on **2026-04-30** (see `ASSUMPTIONS.md` A0–A3):
 
 Findings, suggestions, plain-English LLM explanations, and (for tier-a
 auto-corrections) structured `auto_correction` audit events land in
-`prototype/output/` and are viewable in the Next.js dashboard under
-`frontend/`.
+`prototype/output/` and are also viewable in the Streamlit dashboard
+(`prototype/streamlit_app.py`).
 
 ## Reading order
 
@@ -55,17 +55,22 @@ ANTHROPIC_API_KEY=sk-ant-... python3 main.py --inputs ../inputs --out output --l
 python3 -m unittest discover tests
 ```
 
-## (Optional) Run the dashboard
+## (Optional) Run the Streamlit dashboard
 
-A small Next.js 16 reviewer dashboard reads `prototype/output/decisions.json`
-and shows the JE list with filters and per-entry detail. It is not a brief
-deliverable.
+A reviewer dashboard that reads `prototype/output/decisions.json` and shows
+all five specialist agents from `ARCHITECTURE.md` §2 — only the Adjuster is
+live; the others render a "Coming soon" spec card so the full system
+surface is visible without overstating what ships.
 
 ```bash
-cd frontend
-npm install
-npm run dev   # http://localhost:3000
+cd prototype
+streamlit run streamlit_app.py   # http://localhost:8501
 ```
+
+For the live Adjuster, the sidebar offers three modes:
+- **Deterministic** — pure mathematics, no API calls (Levenshtein + Jaccard + numeric prefix)
+- **LLM** — same decisions and findings, prose rewritten by Claude / OpenAI
+- **Compare** — both, side-by-side
 
 ## Repo layout
 
@@ -77,9 +82,9 @@ npm run dev   # http://localhost:3000
 ├── ASSUMPTIONS.md        ← config-knob index for every threshold
 ├── email_draft.md        ← 3 clarifying questions
 ├── inputs/               ← provided messy data (untouched)
-├── prototype/            ← Manual Adjustments Agent (the chosen slice)
-│   ├── adjuster/         ← loader → validators → pipeline → llm
-│   ├── tests/
-│   └── output/           ← decisions.json, audit_log.jsonl, report.md
-└── frontend/             ← Next.js review dashboard (bonus, not in brief)
+└── prototype/            ← Manual Adjustments Agent (the chosen slice)
+    ├── adjuster/         ← loader → validators → pipeline → llm
+    ├── streamlit_app.py  ← reviewer dashboard
+    ├── tests/
+    └── output/           ← decisions.json, audit_log.jsonl, report.md
 ```

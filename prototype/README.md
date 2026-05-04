@@ -18,7 +18,7 @@ LLM-generated explanation.
 |---|---|
 | Structural validation (balance, account existence, sign rules, dates) | Pure code (`adjuster/validators.py`) |
 | Decision logic (accept / reject / quarantine + rule mapping) | Pure code (`adjuster/pipeline.py`) |
-| Mapping suggestions for unknown accounts (candidate generation + ranking) | Pure code (prefix + edit distance) |
+| Mapping suggestions for unknown accounts (candidate generation + ranking) | Pure mathematics — hand-rolled numeric-prefix similarity + Levenshtein edit-distance ratio + Jaccard token overlap, blended 70/30 (code-prefix vs. name-similarity). All three implementations are visible in `adjuster/validators.py`; no fuzzy-string library. |
 | Plain-English explanation of the decision | LLM with deterministic template fallback (`adjuster/llm.py`) |
 
 The LLM never produces a number, never decides accept/reject, and never

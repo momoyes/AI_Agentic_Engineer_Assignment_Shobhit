@@ -83,7 +83,11 @@ _TEMPLATES = {
 
 
 def _template_explanation(record: "DecisionRecord") -> str:
-    if record.decision == "accept":
+    # An accept with no findings is the clean path. An accept *with* findings
+    # is the tier-a (AUTO_CORRECTED) or tier-b (IMBALANCE_WARN) path: fall
+    # through to the finding-driven template so the prose reflects the
+    # policy outcome, not a generic "balanced" line.
+    if record.decision == "accept" and not record.findings:
         return _TEMPLATES["ACCEPT"].format(
             je_id=record.je_id, desc=record.description
         )

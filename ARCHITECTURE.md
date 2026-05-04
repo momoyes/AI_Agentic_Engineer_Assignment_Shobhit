@@ -127,16 +127,20 @@ The single most important diagram in this document.
 | BS tie-out (A vs L+E), NI→RE, cash continuity | **Code** | Identities |
 | Idempotency keys + event log | **Code** | Hashing + append |
 | Lineage graph (cell ↔ source rows) | **Code** | Graph |
-| Mapping candidate generation for unknown account | **Code** | Prefix + edit-distance + name embedding |
+| Mapping candidate generation for unknown account | **Code** | Hand-rolled pure mathematics: numeric-prefix similarity + Levenshtein edit-distance ratio + Jaccard token overlap, blended 70/30 (in the prototype today). Production extends the same blend with name embeddings and an LLM selector. |
 | Mapping candidate **selection** + confidence | **LLM** | Fuzzy semantic match |
 
-> **Prototype simplification.** The shipped Adjuster slice uses prefix
-> similarity *only* (no name embeddings, no LLM selection) — this is enough
-> to suggest `6310` for the unmapped `6315` in JE-005, but it is not the
-> production Mapper. The production Mapper takes the candidate set plus
-> account name, parent code, prior-period analogues, and amount magnitude,
-> and asks the LLM to pick one with a confidence score. The interface is the
-> same; only the selector implementation differs.
+> **Prototype simplification.** The shipped Adjuster slice uses three
+> hand-rolled pure-math signals — numeric-code prefix similarity, Levenshtein
+> edit-distance ratio, and Jaccard token overlap — blended `0.7 · prefix +
+> 0.3 · (lev + jac) / 2`. Every line of math is in `validators.py`; there is
+> no third-party fuzzy-string library and no LLM in the selection. This is
+> enough to suggest `6310 Travel and Entertainment` for the unmapped `6315`
+> (memo "Conf travel") in JE-005 at confidence 0.60, but it is not the
+> production Mapper. The production Mapper takes the same candidate set plus
+> name embeddings, parent-code hint, prior-period analogues, and amount
+> magnitude, and asks the LLM to pick one with a confidence score. The
+> interface is the same; only the selector implementation differs.
 | Memo coherence ("does the prose match the lines?") | **LLM** | Language understanding |
 | Plain-English rejection / quarantine explanation | **LLM** | Prose for non-technical users |
 | Reconciliation narrative ("explain every delta") | **LLM** | Summarization over labeled deltas |

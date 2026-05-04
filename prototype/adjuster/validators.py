@@ -2,7 +2,20 @@
 
 These checks never call an LLM. They produce structured machine-readable
 findings; humans (or the LLM, in the explainer) read the findings and
-generate prose."""
+generate prose.
+
+Mapping suggestions use **pure mathematics** — no third-party fuzzy-string
+library. The score for each candidate blends three classical signals,
+implemented from scratch below:
+
+  1. Prefix similarity on the numeric account code.
+  2. Levenshtein (edit-distance) ratio between the JE memo and the
+     candidate's COA name.
+  3. Jaccard similarity over case-folded word tokens.
+
+All three are deterministic, side-effect-free, and visible in the source.
+A reviewer can audit the math line-by-line; nothing happens behind a
+library call."""
 from __future__ import annotations
 
 from .config import CONFIG
@@ -146,24 +159,127 @@ def check_date_in_period(je: JournalEntry) -> list[Finding]:
 # the LLM (if used) only chooses and explains. The agent cannot mint a code.
 # ---------------------------------------------------------------------------
 
-def suggest_mappings(unknown_code: str, coa: dict[str, Account]) -> list[MappingSuggestion]:
-    """Rank candidates by (a) numeric prefix proximity and (b) leaf-account
-    status. Returns top-K per config."""
+# ---------------------------------------------------------------------------
+# Pure-math scorers. Hand-rolled so the reviewer can audit every line — no
+# third-party fuzzy-string dependency.
+# ---------------------------------------------------------------------------
+
+def _prefix_score(unknown_code: str, candidate_code: str) -> tuple[float, int]:
+    """Longest common prefix length, normalised by the longer code.
+
+    Math: |LCP(a,b)| / max(|a|, |b|)  ∈ [0, 1].
+    """
+    common = 0
+    for x, y in zip(unknown_code, candidate_code):
+        if x == y:
+            common += 1
+        else:
+            break
+    denom = max(len(unknown_code), len(candidate_code))
+    return (common / denom if denom else 0.0), common
+
+
+def _levenshtein_distance(a: str, b: str) -> int:
+    """Classical Wagner–Fischer DP for edit distance.
+
+    Math: d(i,j) = min(
+        d(i-1, j)   + 1,                  # deletion
+        d(i, j-1)   + 1,                  # insertion
+        d(i-1, j-1) + (0 if a[i]==b[j] else 1)   # substitution
+    )
+
+    Time O(|a|·|b|), space O(min(|a|,|b|)) thanks to the rolling row.
+    """
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    if len(a) < len(b):
+        a, b = b, a   # ensure b is the shorter, so the rolling row is small
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        curr = [i]
+        for j, cb in enumerate(b, 1):
+            insert = curr[j - 1] + 1
+            delete = prev[j] + 1
+            substitute = prev[j - 1] + (0 if ca == cb else 1)
+            curr.append(min(insert, delete, substitute))
+        prev = curr
+    return prev[-1]
+
+
+def _levenshtein_ratio(a: str, b: str) -> float:
+    """Edit-distance similarity normalised to [0, 1].
+
+    Math: 1 - d(a,b) / max(|a|, |b|).
+    Identical strings → 1.0; entirely-different strings → 0.0.
+    """
+    if not a and not b:
+        return 1.0
+    max_len = max(len(a), len(b))
+    return 1 - _levenshtein_distance(a, b) / max_len
+
+
+def _jaccard_tokens(a: str, b: str) -> float:
+    """Set Jaccard over case-folded whitespace tokens.
+
+    Math: |A ∩ B| / |A ∪ B|  where A, B are token sets.
+    Word-order invariant; ignores punctuation differences once split.
+    """
+    ta = {t for t in a.lower().split() if t}
+    tb = {t for t in b.lower().split() if t}
+    if not ta and not tb:
+        return 1.0
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def suggest_mappings(
+    unknown_code: str,
+    coa: dict[str, Account],
+    *,
+    name_hint: str | None = None,
+) -> list[MappingSuggestion]:
+    """Rank COA candidates with a deterministic, pure-math blend.
+
+    score = 0.7 · prefix_score(code, candidate.code)
+          + 0.3 · name_sim(memo, candidate.name)
+
+    where  name_sim = (levenshtein_ratio + jaccard_tokens) / 2.
+
+    The 70/30 weighting reflects domain reality: the numeric code carries
+    most of the signal (a 3-of-4 digit prefix match is rarely accidental),
+    and the memo is a noisy-but-useful tiebreaker. With no memo, the score
+    reduces to the prefix term alone.
+
+    Header rows are excluded because postings cannot hit a header. Returns
+    the top-K per `config.mapping_top_k`.
+    """
     leaves = [a for a in coa.values() if a.account_type != "Header"]
+    use_name = bool(name_hint and name_hint.strip())
+
     scored: list[tuple[float, Account, str]] = []
     for acct in leaves:
-        # prefix match score: longest common prefix length / max length
-        common = 0
-        for x, y in zip(unknown_code, acct.code):
-            if x == y:
-                common += 1
-            else:
-                break
-        denom = max(len(unknown_code), len(acct.code))
-        score = common / denom if denom else 0.0
-        if score > 0:
+        prefix, common = _prefix_score(unknown_code, acct.code)
+
+        if use_name:
+            lev = _levenshtein_ratio(name_hint.lower(), acct.name.lower())
+            jac = _jaccard_tokens(name_hint, acct.name)
+            name_sim = (lev + jac) / 2
+            score = 0.7 * prefix + 0.3 * name_sim
+            reason = (
+                f"prefix {prefix:.0%}, levenshtein {lev:.0%}, "
+                f"jaccard {jac:.0%} → blended {score:.0%} "
+                f"(memo '{name_hint}' vs name '{acct.name}')"
+            )
+        else:
+            score = prefix
             reason = f"shares {common}-digit prefix with {acct.code}"
+
+        if score > 0:
             scored.append((score, acct, reason))
+
     scored.sort(key=lambda t: t[0], reverse=True)
     return [
         MappingSuggestion(

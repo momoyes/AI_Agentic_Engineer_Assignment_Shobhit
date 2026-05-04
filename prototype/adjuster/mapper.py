@@ -68,7 +68,9 @@ class Mapper:
         self.auto_accept_above = auto_accept_above
 
     def map(self, unknown_code: str, context: MapperContext) -> MapperDecision:
-        candidates = generate_candidates(unknown_code, self.coa)
+        candidates = generate_candidates(
+            unknown_code, self.coa, name_hint=context.account_name_hint
+        )
         if not candidates:
             return MapperDecision(
                 bucket="escalate",
